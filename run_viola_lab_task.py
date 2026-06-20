@@ -75,6 +75,22 @@ parser.add_argument(
     help="Grasp offset in meters for lift-sm.",
 )
 parser.add_argument(
+    "--lift-sm-above-offset",
+    type=float,
+    nargs=3,
+    default=None,
+    metavar=("X", "Y", "Z"),
+    help="Full approach-above XYZ offset in meters. Overrides --lift-sm-above-height.",
+)
+parser.add_argument(
+    "--lift-sm-grasp-offset",
+    type=float,
+    nargs=3,
+    default=None,
+    metavar=("X", "Y", "Z"),
+    help="Full grasp XYZ offset in meters. Overrides --lift-sm-grasp-height.",
+)
+parser.add_argument(
     "--lift-sm-position-threshold",
     type=float,
     default=0.015,
@@ -306,8 +322,8 @@ class PickAndLiftSm:
         num_envs: int,
         device: torch.device | str = "cpu",
         position_threshold=0.01,
-        above_height=0.12,
-        grasp_height=0.03,
+        above_offset=(0.0, 0.0, 0.12),
+        grasp_offset=(0.0, 0.0, 0.03),
     ):
         self.dt = float(dt)
         self.num_envs = num_envs
@@ -321,10 +337,10 @@ class PickAndLiftSm:
         self.des_gripper_state = torch.full((self.num_envs,), 0.0, device=self.device)
 
         self.above_offset = torch.zeros((self.num_envs, 7), device=self.device)
-        self.above_offset[:, 2] = above_height
+        self.above_offset[:, :3] = torch.tensor(above_offset, device=self.device)
         self.above_offset[:, -1] = 1.0
         self.grasp_offset = torch.zeros((self.num_envs, 7), device=self.device)
-        self.grasp_offset[:, 2] = grasp_height
+        self.grasp_offset[:, :3] = torch.tensor(grasp_offset, device=self.device)
         self.grasp_offset[:, -1] = 1.0
 
         self.sm_dt_wp = wp.from_torch(self.sm_dt, wp.float32)
@@ -404,20 +420,22 @@ def run_lift_state_machine(env: gym.Env, env_cfg, screenshotter: ViewportScreens
     desired_orientation = torch.zeros((env.unwrapped.num_envs, 4), device=env.unwrapped.device)
     desired_orientation[:] = torch.tensor(args_cli.lift_sm_orientation, device=env.unwrapped.device)
     desired_orientation = torch.nn.functional.normalize(desired_orientation, dim=-1)
+    above_offset = args_cli.lift_sm_above_offset or (0.0, 0.0, args_cli.lift_sm_above_height)
+    grasp_offset = args_cli.lift_sm_grasp_offset or (0.0, 0.0, args_cli.lift_sm_grasp_height)
 
     pick_sm = PickAndLiftSm(
         env_cfg.sim.dt * env_cfg.decimation,
         env.unwrapped.num_envs,
         env.unwrapped.device,
         position_threshold=args_cli.lift_sm_position_threshold,
-        above_height=args_cli.lift_sm_above_height,
-        grasp_height=args_cli.lift_sm_grasp_height,
+        above_offset=above_offset,
+        grasp_offset=grasp_offset,
     )
     print(
         "[INFO] lift-sm config "
         f"position_only={position_only} orientation_wxyz={desired_orientation[0].tolist()} "
-        f"above_height={args_cli.lift_sm_above_height:.3f} "
-        f"grasp_height={args_cli.lift_sm_grasp_height:.3f} "
+        f"above_offset={list(above_offset)} "
+        f"grasp_offset={list(grasp_offset)} "
         f"position_threshold={args_cli.lift_sm_position_threshold:.3f}",
         flush=True,
     )
@@ -459,12 +477,14 @@ def run_lift_state_machine(env: gym.Env, env_cfg, screenshotter: ViewportScreens
 
             if step % 60 == 0:
                 cube_height = env.unwrapped.scene["object"].data.root_pos_w[:, 2] - env.unwrapped.scene.env_origins[:, 2]
-                target_err = torch.linalg.norm(tcp_position - pick_sm.des_ee_pose[:, :3], dim=-1)
+                target_delta = tcp_position - pick_sm.des_ee_pose[:, :3]
+                target_err = torch.linalg.norm(target_delta, dim=-1)
                 print(
                     f"[INFO] lift-sm step={step} state={int(pick_sm.sm_state[0])} "
                     f"cube_z={float(cube_height[0]):.3f} "
                     f"gain={float(cube_height[0]) - initial_object_z:.3f} "
                     f"target_err={float(target_err[0]):.3f} "
+                    f"target_delta={target_delta[0].tolist()} "
                     f"wait={float(pick_sm.sm_wait_time[0]):.2f} action_dim={actions.shape[-1]} "
                     f"visual_attach={args_cli.visual_attach}",
                     flush=True,
