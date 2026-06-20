@@ -172,7 +172,13 @@ class PickAndLiftSm:
         self.sm_state[env_ids] = 0
         self.sm_wait_time[env_ids] = 0.0
 
-    def compute(self, ee_pose: torch.Tensor, object_pose: torch.Tensor, des_object_pose: torch.Tensor) -> torch.Tensor:
+    def compute(
+        self,
+        ee_pose: torch.Tensor,
+        object_pose: torch.Tensor,
+        des_object_pose: torch.Tensor,
+        position_only: bool,
+    ) -> torch.Tensor:
         ee_pose = ee_pose[:, [0, 1, 2, 4, 5, 6, 3]]
         object_pose = object_pose[:, [0, 1, 2, 4, 5, 6, 3]]
         des_object_pose = des_object_pose[:, [0, 1, 2, 4, 5, 6, 3]]
@@ -196,6 +202,8 @@ class PickAndLiftSm:
         )
 
         des_ee_pose = self.des_ee_pose[:, [0, 1, 2, 6, 3, 4, 5]]
+        if position_only:
+            return torch.cat([des_ee_pose[:, :3], self.des_gripper_state.unsqueeze(-1)], dim=-1)
         return torch.cat([des_ee_pose, self.des_gripper_state.unsqueeze(-1)], dim=-1)
 
 
@@ -215,7 +223,8 @@ def run_lift_state_machine(env: gym.Env, env_cfg) -> None:
     wp.init()
 
     actions = torch.zeros(env.unwrapped.action_space.shape, device=env.unwrapped.device)
-    actions[:, 3] = 1.0
+    position_only = actions.shape[-1] == 4
+    actions[:, -1] = 1.0
 
     desired_orientation = torch.zeros((env.unwrapped.num_envs, 4), device=env.unwrapped.device)
     desired_orientation[:, 1] = 1.0
@@ -244,10 +253,19 @@ def run_lift_state_machine(env: gym.Env, env_cfg) -> None:
                 torch.cat([tcp_position, tcp_orientation], dim=-1),
                 torch.cat([object_position, desired_orientation], dim=-1),
                 torch.cat([desired_position, desired_orientation], dim=-1),
+                position_only=position_only,
             )
 
             if dones.any():
                 pick_sm.reset_idx(dones.nonzero(as_tuple=False).squeeze(-1))
+
+            if step % 60 == 0:
+                cube_height = object_data.root_pos_w[:, 2] - env.unwrapped.scene.env_origins[:, 2]
+                print(
+                    f"[INFO] lift-sm step={step} state={int(pick_sm.sm_state[0])} "
+                    f"cube_z={float(cube_height[0]):.3f} action_dim={actions.shape[-1]}",
+                    flush=True,
+                )
 
         step += 1
         if args_cli.max_steps > 0 and step >= args_cli.max_steps:
