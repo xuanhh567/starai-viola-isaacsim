@@ -69,6 +69,7 @@ class PickSmWaitTime:
     APPROACH_OBJECT = wp.constant(0.6)
     GRASP_OBJECT = wp.constant(0.3)
     LIFT_OBJECT = wp.constant(1.0)
+    APPROACH_TIMEOUT = wp.constant(2.5)
 
 
 @wp.func
@@ -86,7 +87,8 @@ def infer_lift_state_machine(
     des_object_pose: wp.array(dtype=wp.transform),
     des_ee_pose: wp.array(dtype=wp.transform),
     gripper_state: wp.array(dtype=float),
-    offset: wp.array(dtype=wp.transform),
+    above_offset: wp.array(dtype=wp.transform),
+    grasp_offset: wp.array(dtype=wp.transform),
     position_threshold: float,
 ):
     tid = wp.tid()
@@ -98,29 +100,29 @@ def infer_lift_state_machine(
             sm_state[tid] = PickSmState.APPROACH_ABOVE_OBJECT
             sm_wait_time[tid] = 0.0
     elif state == PickSmState.APPROACH_ABOVE_OBJECT:
-        des_ee_pose[tid] = wp.transform_multiply(offset[tid], object_pose[tid])
+        des_ee_pose[tid] = wp.transform_multiply(above_offset[tid], object_pose[tid])
         gripper_state[tid] = GripperState.OPEN
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
             position_threshold,
-        ):
+        ) or sm_wait_time[tid] >= PickSmWaitTime.APPROACH_TIMEOUT:
             if sm_wait_time[tid] >= PickSmWaitTime.APPROACH_ABOVE_OBJECT:
                 sm_state[tid] = PickSmState.APPROACH_OBJECT
                 sm_wait_time[tid] = 0.0
     elif state == PickSmState.APPROACH_OBJECT:
-        des_ee_pose[tid] = object_pose[tid]
+        des_ee_pose[tid] = wp.transform_multiply(grasp_offset[tid], object_pose[tid])
         gripper_state[tid] = GripperState.OPEN
         if distance_below_threshold(
             wp.transform_get_translation(ee_pose[tid]),
             wp.transform_get_translation(des_ee_pose[tid]),
             position_threshold,
-        ):
+        ) or sm_wait_time[tid] >= PickSmWaitTime.APPROACH_TIMEOUT:
             if sm_wait_time[tid] >= PickSmWaitTime.APPROACH_OBJECT:
                 sm_state[tid] = PickSmState.GRASP_OBJECT
                 sm_wait_time[tid] = 0.0
     elif state == PickSmState.GRASP_OBJECT:
-        des_ee_pose[tid] = object_pose[tid]
+        des_ee_pose[tid] = wp.transform_multiply(grasp_offset[tid], object_pose[tid])
         gripper_state[tid] = GripperState.CLOSE
         if sm_wait_time[tid] >= PickSmWaitTime.GRASP_OBJECT:
             sm_state[tid] = PickSmState.LIFT_OBJECT
@@ -155,16 +157,20 @@ class PickAndLiftSm:
         self.des_ee_pose = torch.zeros((self.num_envs, 7), device=self.device)
         self.des_gripper_state = torch.full((self.num_envs,), 0.0, device=self.device)
 
-        self.offset = torch.zeros((self.num_envs, 7), device=self.device)
-        self.offset[:, 2] = 0.1
-        self.offset[:, -1] = 1.0
+        self.above_offset = torch.zeros((self.num_envs, 7), device=self.device)
+        self.above_offset[:, 2] = 0.12
+        self.above_offset[:, -1] = 1.0
+        self.grasp_offset = torch.zeros((self.num_envs, 7), device=self.device)
+        self.grasp_offset[:, 2] = 0.03
+        self.grasp_offset[:, -1] = 1.0
 
         self.sm_dt_wp = wp.from_torch(self.sm_dt, wp.float32)
         self.sm_state_wp = wp.from_torch(self.sm_state, wp.int32)
         self.sm_wait_time_wp = wp.from_torch(self.sm_wait_time, wp.float32)
         self.des_ee_pose_wp = wp.from_torch(self.des_ee_pose, wp.transform)
         self.des_gripper_state_wp = wp.from_torch(self.des_gripper_state, wp.float32)
-        self.offset_wp = wp.from_torch(self.offset, wp.transform)
+        self.above_offset_wp = wp.from_torch(self.above_offset, wp.transform)
+        self.grasp_offset_wp = wp.from_torch(self.grasp_offset, wp.transform)
 
     def reset_idx(self, env_ids: Sequence[int] = None) -> None:
         if env_ids is None:
@@ -195,7 +201,8 @@ class PickAndLiftSm:
                 wp.from_torch(des_object_pose.contiguous(), wp.transform),
                 self.des_ee_pose_wp,
                 self.des_gripper_state_wp,
-                self.offset_wp,
+                self.above_offset_wp,
+                self.grasp_offset_wp,
                 self.position_threshold,
             ],
             device=self.device,
@@ -263,7 +270,8 @@ def run_lift_state_machine(env: gym.Env, env_cfg) -> None:
                 cube_height = object_data.root_pos_w[:, 2] - env.unwrapped.scene.env_origins[:, 2]
                 print(
                     f"[INFO] lift-sm step={step} state={int(pick_sm.sm_state[0])} "
-                    f"cube_z={float(cube_height[0]):.3f} action_dim={actions.shape[-1]}",
+                    f"cube_z={float(cube_height[0]):.3f} "
+                    f"wait={float(pick_sm.sm_wait_time[0]):.2f} action_dim={actions.shape[-1]}",
                     flush=True,
                 )
 
