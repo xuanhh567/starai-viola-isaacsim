@@ -1,0 +1,12 @@
+*.log
+*.mp4
+*.mov
+*.png
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+kit_*.log
+logs/
+outputs/
