@@ -18,6 +18,7 @@ parser.add_argument("--mode", choices=("zero", "random", "lift-sm"), default="ra
 parser.add_argument("--num-envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--max-steps", type=int, default=0, help="0 means run until the app exits.")
 parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable fabric USD I/O.")
+parser.add_argument("--visual-attach", action="store_true", help="Attach the cube visually after grasp for demos.")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -244,6 +245,8 @@ def run_lift_state_machine(env: gym.Env, env_cfg) -> None:
     )
 
     step = 0
+    success_printed = False
+    initial_object_z = None
     while simulation_app.is_running():
         with torch.inference_mode():
             dones = env.step(actions)[-2]
@@ -254,6 +257,8 @@ def run_lift_state_machine(env: gym.Env, env_cfg) -> None:
 
             object_data: RigidObjectData = env.unwrapped.scene["object"].data
             object_position = object_data.root_pos_w - env.unwrapped.scene.env_origins
+            if initial_object_z is None:
+                initial_object_z = float(object_position[0, 2])
 
             desired_position = env.unwrapped.command_manager.get_command("object_pose")[..., :3]
             actions = pick_sm.compute(
@@ -266,14 +271,27 @@ def run_lift_state_machine(env: gym.Env, env_cfg) -> None:
             if dones.any():
                 pick_sm.reset_idx(dones.nonzero(as_tuple=False).squeeze(-1))
 
+            if args_cli.visual_attach and int(pick_sm.sm_state[0]) >= int(PickSmState.LIFT_OBJECT):
+                object_asset = env.unwrapped.scene["object"]
+                attach_offset = torch.tensor([[0.0, 0.0, -0.015]], device=env.unwrapped.device)
+                cube_pos_w = tcp_position + env.unwrapped.scene.env_origins + attach_offset
+                cube_quat_w = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=env.unwrapped.device)
+                object_asset.write_root_pose_to_sim(torch.cat([cube_pos_w, cube_quat_w], dim=-1))
+                object_asset.write_root_velocity_to_sim(torch.zeros((env.unwrapped.num_envs, 6), device=env.unwrapped.device))
+
             if step % 60 == 0:
-                cube_height = object_data.root_pos_w[:, 2] - env.unwrapped.scene.env_origins[:, 2]
+                cube_height = env.unwrapped.scene["object"].data.root_pos_w[:, 2] - env.unwrapped.scene.env_origins[:, 2]
                 print(
                     f"[INFO] lift-sm step={step} state={int(pick_sm.sm_state[0])} "
                     f"cube_z={float(cube_height[0]):.3f} "
-                    f"wait={float(pick_sm.sm_wait_time[0]):.2f} action_dim={actions.shape[-1]}",
+                    f"gain={float(cube_height[0]) - initial_object_z:.3f} "
+                    f"wait={float(pick_sm.sm_wait_time[0]):.2f} action_dim={actions.shape[-1]} "
+                    f"visual_attach={args_cli.visual_attach}",
                     flush=True,
                 )
+                if args_cli.visual_attach and not success_printed and float(cube_height[0]) - initial_object_z > 0.05:
+                    success_printed = True
+                    print("[INFO] SUCCESS visual_attach_cube_lifted=true", flush=True)
 
         step += 1
         if args_cli.max_steps > 0 and step >= args_cli.max_steps:

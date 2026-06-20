@@ -26,6 +26,7 @@ export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/etc/vulkan/icd.d/nvidia_icd.json}"
 exec ./isaaclab.sh -p "$SCRIPT_DIR/run_viola_lab_task.py" \
   --task Isaac-Lift-Cube-Viola-IK-Abs-Play-v0 \
   --mode lift-sm \
+  --visual-attach \
   --num-envs 1 \
   --headless \
   --livestream 2 \
