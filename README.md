@@ -69,6 +69,8 @@ ssh g5090 'cd /home/ubuntu/wjx/starai_isaac_viola && nohup ./start_viola_lab_lif
 ```
 
 Screenshots are written under `/home/ubuntu/wjx/starai_isaac_viola/outputs/screenshots`.
+When screenshots are enabled, the launcher sets a close viewport camera by default; override it with
+`--camera-eye X Y Z --camera-target X Y Z` if a different diagnostic view is needed.
 
 Reach-only IK:
 

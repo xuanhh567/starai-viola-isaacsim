@@ -38,6 +38,22 @@ parser.add_argument(
     dest="screenshot_on_success",
     help="Disable the automatic success screenshot when --screenshot-dir is set.",
 )
+parser.add_argument(
+    "--camera-eye",
+    type=float,
+    nargs=3,
+    default=None,
+    metavar=("X", "Y", "Z"),
+    help="Viewport camera eye position. Defaults to a close diagnostic view when screenshots are enabled.",
+)
+parser.add_argument(
+    "--camera-target",
+    type=float,
+    nargs=3,
+    default=None,
+    metavar=("X", "Y", "Z"),
+    help="Viewport camera target position. Defaults to the Viola grasp workspace when screenshots are enabled.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -140,6 +156,19 @@ def resolve_task_name() -> str:
     if args_cli.mode == "lift-sm":
         return DEFAULT_LIFT_TASK
     return DEFAULT_REACH_TASK
+
+
+def configure_viewport_camera(env: gym.Env) -> None:
+    if not args_cli.screenshot_dir and args_cli.camera_eye is None and args_cli.camera_target is None:
+        return
+
+    eye = args_cli.camera_eye if args_cli.camera_eye is not None else [0.85, -0.95, 0.65]
+    target = args_cli.camera_target if args_cli.camera_target is not None else [0.28, 0.0, 0.18]
+    try:
+        env.unwrapped.sim.set_camera_view(eye=eye, target=target)
+        print(f"[INFO] Viewport camera set: eye={eye} target={target}", flush=True)
+    except Exception as exc:  # noqa: BLE001 - camera setup should not stop headless runs.
+        print(f"[WARN] Failed to set viewport camera: {exc}", flush=True)
 
 
 def zero_actions(env: gym.Env) -> torch.Tensor:
@@ -417,6 +446,7 @@ def main() -> None:
     print(f"[INFO] Gym observation space: {env.observation_space}", flush=True)
     print(f"[INFO] Gym action space: {env.action_space}", flush=True)
     env.reset()
+    configure_viewport_camera(env)
     screenshotter = ViewportScreenshotter(
         args_cli.screenshot_dir,
         task_name,
