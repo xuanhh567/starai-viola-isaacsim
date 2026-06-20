@@ -50,6 +50,18 @@ ssh g5090 'pids=$(pgrep -f "python .*starai_isaac_viola/.*_stream\\.py" || true)
 
 ## Supporting Demos
 
+Isaac Lab official Reach task variant:
+
+```bash
+ssh g5090 'cd /home/ubuntu/wjx/starai_isaac_viola && nohup ./start_viola_lab_reach.sh > viola_lab_reach.log 2>&1 & echo $!'
+```
+
+Isaac Lab official Lift-Cube task variant:
+
+```bash
+ssh g5090 'cd /home/ubuntu/wjx/starai_isaac_viola && nohup ./start_viola_lab_lift.sh > viola_lab_lift.log 2>&1 & echo $!'
+```
+
 Reach-only IK:
 
 ```bash
@@ -72,5 +84,6 @@ ssh g5090 '/home/ubuntu/wjx/starai_isaac_viola/smoke_test.sh 60'
 
 - The v1 cube grasp is a visual IK grasp demo. It attempts a deterministic pick-and-lift sequence and uses an attach/follow fallback after the gripper closes so the cube reliably lifts in WebRTC.
 - This is not yet a validated pure friction/contact grasp.
+- The Isaac Lab task variants register local Gym ids under `viola_lab_tasks` and use official Reach/Lift-Cube task configs with the Viola USD and joint names.
 - Assets are included for reproducibility: `assets/viola.usd`, `assets/viola_isaac.urdf`, and `assets/configuration/*.usd`.
 - ROS2 / MoveIt integration is not part of v1.
