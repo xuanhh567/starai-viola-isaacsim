@@ -361,7 +361,11 @@ def run_lift_state_machine(env: gym.Env, env_cfg, screenshotter: ViewportScreens
 
     actions = torch.zeros(env.unwrapped.action_space.shape, device=env.unwrapped.device)
     position_only = actions.shape[-1] == 4
-    actions[:, -1] = 1.0
+    if position_only:
+        actions[:, -1] = 1.0
+    else:
+        actions[:, 3] = 1.0
+        actions[:, -1] = 1.0
 
     desired_orientation = torch.zeros((env.unwrapped.num_envs, 4), device=env.unwrapped.device)
     desired_orientation[:, 1] = 1.0

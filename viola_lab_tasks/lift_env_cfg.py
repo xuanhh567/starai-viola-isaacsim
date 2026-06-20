@@ -42,7 +42,7 @@ class ViolaCubeLiftEnvCfg(LiftEnvCfg):
             asset_name="robot",
             joint_names=ARM_JOINTS,
             body_name=EE_BODY,
-            controller=DifferentialIKControllerCfg(command_type="position", use_relative_mode=False, ik_method="dls"),
+            controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"),
             body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=TCP_OFFSET_POS),
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
