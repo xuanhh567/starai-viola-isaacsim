@@ -54,6 +54,32 @@ parser.add_argument(
     metavar=("X", "Y", "Z"),
     help="Viewport camera target position. Defaults to the Viola grasp workspace when screenshots are enabled.",
 )
+parser.add_argument(
+    "--lift-sm-orientation",
+    type=float,
+    nargs=4,
+    default=(0.0, 1.0, 0.0, 0.0),
+    metavar=("W", "X", "Y", "Z"),
+    help="Desired TCP orientation quaternion for lift-sm pose IK.",
+)
+parser.add_argument(
+    "--lift-sm-above-height",
+    type=float,
+    default=0.12,
+    help="Approach-above offset in meters for lift-sm.",
+)
+parser.add_argument(
+    "--lift-sm-grasp-height",
+    type=float,
+    default=0.03,
+    help="Grasp offset in meters for lift-sm.",
+)
+parser.add_argument(
+    "--lift-sm-position-threshold",
+    type=float,
+    default=0.015,
+    help="Position threshold in meters for lift-sm state transitions.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -274,7 +300,15 @@ def infer_lift_state_machine(
 class PickAndLiftSm:
     """Simple task-space pick-and-lift state machine for Lift-Cube IK actions."""
 
-    def __init__(self, dt: float, num_envs: int, device: torch.device | str = "cpu", position_threshold=0.01):
+    def __init__(
+        self,
+        dt: float,
+        num_envs: int,
+        device: torch.device | str = "cpu",
+        position_threshold=0.01,
+        above_height=0.12,
+        grasp_height=0.03,
+    ):
         self.dt = float(dt)
         self.num_envs = num_envs
         self.device = device
@@ -287,10 +321,10 @@ class PickAndLiftSm:
         self.des_gripper_state = torch.full((self.num_envs,), 0.0, device=self.device)
 
         self.above_offset = torch.zeros((self.num_envs, 7), device=self.device)
-        self.above_offset[:, 2] = 0.12
+        self.above_offset[:, 2] = above_height
         self.above_offset[:, -1] = 1.0
         self.grasp_offset = torch.zeros((self.num_envs, 7), device=self.device)
-        self.grasp_offset[:, 2] = 0.03
+        self.grasp_offset[:, 2] = grasp_height
         self.grasp_offset[:, -1] = 1.0
 
         self.sm_dt_wp = wp.from_torch(self.sm_dt, wp.float32)
@@ -368,13 +402,24 @@ def run_lift_state_machine(env: gym.Env, env_cfg, screenshotter: ViewportScreens
         actions[:, -1] = 1.0
 
     desired_orientation = torch.zeros((env.unwrapped.num_envs, 4), device=env.unwrapped.device)
-    desired_orientation[:, 1] = 1.0
+    desired_orientation[:] = torch.tensor(args_cli.lift_sm_orientation, device=env.unwrapped.device)
+    desired_orientation = torch.nn.functional.normalize(desired_orientation, dim=-1)
 
     pick_sm = PickAndLiftSm(
         env_cfg.sim.dt * env_cfg.decimation,
         env.unwrapped.num_envs,
         env.unwrapped.device,
-        position_threshold=0.015,
+        position_threshold=args_cli.lift_sm_position_threshold,
+        above_height=args_cli.lift_sm_above_height,
+        grasp_height=args_cli.lift_sm_grasp_height,
+    )
+    print(
+        "[INFO] lift-sm config "
+        f"position_only={position_only} orientation_wxyz={desired_orientation[0].tolist()} "
+        f"above_height={args_cli.lift_sm_above_height:.3f} "
+        f"grasp_height={args_cli.lift_sm_grasp_height:.3f} "
+        f"position_threshold={args_cli.lift_sm_position_threshold:.3f}",
+        flush=True,
     )
 
     step = 0
@@ -414,10 +459,12 @@ def run_lift_state_machine(env: gym.Env, env_cfg, screenshotter: ViewportScreens
 
             if step % 60 == 0:
                 cube_height = env.unwrapped.scene["object"].data.root_pos_w[:, 2] - env.unwrapped.scene.env_origins[:, 2]
+                target_err = torch.linalg.norm(tcp_position - pick_sm.des_ee_pose[:, :3], dim=-1)
                 print(
                     f"[INFO] lift-sm step={step} state={int(pick_sm.sm_state[0])} "
                     f"cube_z={float(cube_height[0]):.3f} "
                     f"gain={float(cube_height[0]) - initial_object_z:.3f} "
+                    f"target_err={float(target_err[0]):.3f} "
                     f"wait={float(pick_sm.sm_wait_time[0]):.2f} action_dim={actions.shape[-1]} "
                     f"visual_attach={args_cli.visual_attach}",
                     flush=True,

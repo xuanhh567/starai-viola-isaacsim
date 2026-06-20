@@ -68,6 +68,10 @@ Pose-IK Lift-Cube experiment for gripper orientation debugging:
 ssh g5090 'cd /home/ubuntu/wjx/starai_isaac_viola && nohup ./start_viola_lab_lift_pose.sh --max-steps 420 --screenshot-dir outputs/screenshots/lift_pose --screenshot-every 120 > viola_lab_lift_pose.log 2>&1 & echo $!'
 ```
 
+For pose calibration, vary `--lift-sm-orientation W X Y Z`, `--lift-sm-above-height`,
+`--lift-sm-grasp-height`, and `--lift-sm-position-threshold`. The lift-sm log prints
+`target_err` so screenshots can be compared against TCP tracking quality.
+
 Run Lift-Cube with Isaac Sim viewport screenshots for visual verification:
 
 ```bash
