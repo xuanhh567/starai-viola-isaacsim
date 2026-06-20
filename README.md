@@ -62,6 +62,14 @@ Isaac Lab official Lift-Cube task variant:
 ssh g5090 'cd /home/ubuntu/wjx/starai_isaac_viola && nohup ./start_viola_lab_lift.sh > viola_lab_lift.log 2>&1 & echo $!'
 ```
 
+Run Lift-Cube with Isaac Sim viewport screenshots for visual verification:
+
+```bash
+ssh g5090 'cd /home/ubuntu/wjx/starai_isaac_viola && nohup ./start_viola_lab_lift.sh --max-steps 420 --screenshot-dir outputs/screenshots --screenshot-every 120 > viola_lab_lift.log 2>&1 & echo $!'
+```
+
+Screenshots are written under `/home/ubuntu/wjx/starai_isaac_viola/outputs/screenshots`.
+
 Reach-only IK:
 
 ```bash

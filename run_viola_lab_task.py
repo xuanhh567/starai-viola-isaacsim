@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
@@ -19,6 +20,24 @@ parser.add_argument("--num-envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--max-steps", type=int, default=0, help="0 means run until the app exits.")
 parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable fabric USD I/O.")
 parser.add_argument("--visual-attach", action="store_true", help="Attach the cube visually after grasp for demos.")
+parser.add_argument(
+    "--screenshot-dir",
+    type=str,
+    default="",
+    help="Directory for Isaac Sim viewport screenshots. Disabled when empty.",
+)
+parser.add_argument(
+    "--screenshot-every",
+    type=int,
+    default=0,
+    help="Capture a viewport screenshot every N simulation steps when --screenshot-dir is set.",
+)
+parser.add_argument(
+    "--no-screenshot-on-success",
+    action="store_false",
+    dest="screenshot_on_success",
+    help="Disable the automatic success screenshot when --screenshot-dir is set.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -33,6 +52,86 @@ import isaaclab_tasks  # noqa: F401, E402
 import viola_lab_tasks  # noqa: F401, E402
 from isaaclab.assets.rigid_object.rigid_object_data import RigidObjectData  # noqa: E402
 from isaaclab_tasks.utils import parse_env_cfg  # noqa: E402
+
+
+class ViewportScreenshotter:
+    """Small wrapper around Isaac Sim viewport capture for run verification."""
+
+    def __init__(self, output_dir: str, task_name: str, mode: str, every_steps: int, capture_on_success: bool):
+        self.enabled = bool(output_dir)
+        self.every_steps = max(0, every_steps)
+        self.capture_on_success = capture_on_success
+        self.task_name = self._safe_name(task_name)
+        self.mode = self._safe_name(mode)
+        self._warned_no_viewport = False
+        self._capture_viewport_to_file = None
+        self._get_active_viewport = None
+        self._pending_captures = []
+
+        self.output_dir = self._resolve_output_dir(output_dir) if self.enabled else None
+        if self.output_dir is not None:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[INFO] Viewport screenshots enabled: {self.output_dir}", flush=True)
+
+    @staticmethod
+    def _safe_name(value: str) -> str:
+        return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in value)
+
+    @staticmethod
+    def _resolve_output_dir(output_dir: str) -> Path:
+        path = Path(output_dir).expanduser()
+        if path.is_absolute():
+            return path
+        return Path(__file__).resolve().parent / path
+
+    def _load_viewport_api(self):
+        if self._capture_viewport_to_file is None or self._get_active_viewport is None:
+            from omni.kit.viewport.utility import capture_viewport_to_file, get_active_viewport
+
+            self._capture_viewport_to_file = capture_viewport_to_file
+            self._get_active_viewport = get_active_viewport
+
+    def capture(self, step: int, event: str, state: int | None = None) -> None:
+        if not self.enabled or self.output_dir is None:
+            return
+
+        try:
+            self._load_viewport_api()
+            viewport = self._get_active_viewport()
+            if viewport is None:
+                if not self._warned_no_viewport:
+                    print("[WARN] No active Isaac Sim viewport; screenshot skipped.", flush=True)
+                    self._warned_no_viewport = True
+                return
+
+            state_suffix = f"_state_{state}" if state is not None else ""
+            filename = f"{self.task_name}_{self.mode}_step_{step:05d}_{self._safe_name(event)}{state_suffix}.png"
+            file_path = self.output_dir / filename
+            capture_obj = self._capture_viewport_to_file(viewport, file_path=str(file_path))
+            if capture_obj is not None:
+                self._pending_captures.append(capture_obj)
+            print(f"[INFO] Screenshot scheduled: {file_path}", flush=True)
+        except Exception as exc:  # noqa: BLE001 - screenshot failures should not stop the demo.
+            print(f"[WARN] Screenshot capture failed: {exc}", flush=True)
+
+    def maybe_capture_interval(self, step: int, state: int | None = None) -> None:
+        if self.every_steps > 0 and step % self.every_steps == 0:
+            self.capture(step, "interval", state=state)
+
+    def capture_success(self, step: int, state: int | None = None) -> None:
+        if self.capture_on_success:
+            self.capture(step, "success", state=state)
+
+    def flush(self) -> None:
+        if not self.enabled:
+            return
+        try:
+            import omni.kit.renderer_capture
+
+            omni.kit.renderer_capture.acquire_renderer_capture_interface().wait_async_capture()
+            print("[INFO] Screenshot capture queue flushed.", flush=True)
+        except Exception as exc:  # noqa: BLE001 - final cleanup should stay best effort.
+            print(f"[WARN] Screenshot flush failed: {exc}", flush=True)
 
 
 def resolve_task_name() -> str:
@@ -215,19 +314,20 @@ class PickAndLiftSm:
         return torch.cat([des_ee_pose, self.des_gripper_state.unsqueeze(-1)], dim=-1)
 
 
-def run_zero_or_random(env: gym.Env) -> None:
+def run_zero_or_random(env: gym.Env, screenshotter: ViewportScreenshotter) -> None:
     step = 0
     while simulation_app.is_running():
         with torch.inference_mode():
             actions = zero_actions(env) if args_cli.mode == "zero" else random_actions(env)
             env.step(actions)
+            screenshotter.maybe_capture_interval(step)
         step += 1
         if args_cli.max_steps > 0 and step >= args_cli.max_steps:
             print(f"[INFO] Reached max steps: {args_cli.max_steps}", flush=True)
             break
 
 
-def run_lift_state_machine(env: gym.Env, env_cfg) -> None:
+def run_lift_state_machine(env: gym.Env, env_cfg, screenshotter: ViewportScreenshotter) -> None:
     wp.init()
 
     actions = torch.zeros(env.unwrapped.action_space.shape, device=env.unwrapped.device)
@@ -292,6 +392,9 @@ def run_lift_state_machine(env: gym.Env, env_cfg) -> None:
                 if args_cli.visual_attach and not success_printed and float(cube_height[0]) - initial_object_z > 0.05:
                     success_printed = True
                     print("[INFO] SUCCESS visual_attach_cube_lifted=true", flush=True)
+                    screenshotter.capture_success(step, state=int(pick_sm.sm_state[0]))
+
+            screenshotter.maybe_capture_interval(step, state=int(pick_sm.sm_state[0]))
 
         step += 1
         if args_cli.max_steps > 0 and step >= args_cli.max_steps:
@@ -314,13 +417,21 @@ def main() -> None:
     print(f"[INFO] Gym observation space: {env.observation_space}", flush=True)
     print(f"[INFO] Gym action space: {env.action_space}", flush=True)
     env.reset()
+    screenshotter = ViewportScreenshotter(
+        args_cli.screenshot_dir,
+        task_name,
+        args_cli.mode,
+        args_cli.screenshot_every,
+        args_cli.screenshot_on_success,
+    )
 
     try:
         if args_cli.mode == "lift-sm":
-            run_lift_state_machine(env, env_cfg)
+            run_lift_state_machine(env, env_cfg, screenshotter)
         else:
-            run_zero_or_random(env)
+            run_zero_or_random(env, screenshotter)
     finally:
+        screenshotter.flush()
         env.close()
 
 
