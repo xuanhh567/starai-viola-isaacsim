@@ -173,6 +173,7 @@ def compute_ik_joint_target(
     handles: dict[str, object],
     desired_gripper_center_w: torch.Tensor,
     current_joint_target: torch.Tensor,
+    max_joint_delta: float = 0.025,
 ) -> tuple[torch.Tensor, float]:
     arm_joint_ids = handles["arm_joint_ids"]
     ee_body_id = int(handles["ee_body_id"])
@@ -197,6 +198,9 @@ def compute_ik_joint_target(
 
     limits = robot.data.soft_joint_pos_limits[:, arm_joint_ids]
     arm_target = torch.clamp(arm_target, limits[:, :, 0] + 1.0e-3, limits[:, :, 1] - 1.0e-3)
+    previous = current_joint_target[:, arm_joint_ids]
+    delta = torch.clamp(arm_target - previous, -max_joint_delta, max_joint_delta)
+    arm_target = previous + delta
     current_joint_target[:, arm_joint_ids] = arm_target
 
     err = torch.linalg.norm(gripper_center_w(robot, handles) - desired_gripper_center_w, dim=1).item()

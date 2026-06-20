@@ -47,8 +47,8 @@ class Phase(Enum):
     RESET = "RESET"
 
 
-def phase_goal(phase: Phase, cube_pos: torch.Tensor, device: str) -> torch.Tensor:
-    goal = cube_pos.clone()
+def phase_goal(phase: Phase, anchor_pos: torch.Tensor, device: str) -> torch.Tensor:
+    goal = anchor_pos.clone()
     if phase == Phase.APPROACH:
         goal[:, 2] += 0.20
     elif phase == Phase.DESCEND:
@@ -84,17 +84,23 @@ def main() -> None:
     attached = False
     success_printed = False
     cube_lifted = False
+    grasp_anchor_pos = cube_initial_pos.clone()
+    smoothed_goal = phase_goal(phase, grasp_anchor_pos, sim.device)
 
     print("[INFO] IK cube grasp demo setup complete.", flush=True)
     print(f"[INFO] Robot joints: {robot.data.joint_names}", flush=True)
     print(f"[INFO] Robot bodies: {robot.data.body_names}", flush=True)
 
     while simulation_app.is_running():
-        cube_pos = cube.data.root_pos_w.clone()
+        if not attached and phase in (Phase.APPROACH, Phase.DESCEND, Phase.CLOSE):
+            grasp_anchor_pos = cube.data.root_pos_w.clone()
         if phase == Phase.RESET:
-            cube_pos = cube_initial_pos
+            grasp_anchor_pos = cube_initial_pos.clone()
 
-        goal = phase_goal(phase, cube_pos, sim.device)
+        raw_goal = phase_goal(phase, grasp_anchor_pos, sim.device)
+        alpha = 0.035 if phase in (Phase.LIFT, Phase.HOLD) else 0.055
+        smoothed_goal = smoothed_goal + alpha * (raw_goal - smoothed_goal)
+        goal = smoothed_goal.clone()
         joint_target, err = compute_ik_joint_target(ik, robot, handles, goal, joint_target)
         set_gripper_positions(robot, handles, joint_target, open_gripper=phase in (Phase.APPROACH, Phase.DESCEND, Phase.RESET))
 
@@ -104,7 +110,6 @@ def main() -> None:
         if attached:
             cube_follow_pos = center + torch.tensor([[0.0, 0.0, -0.052]], device=sim.device)
             write_cube_pose(cube, cube_follow_pos)
-            cube_pos = cube_follow_pos
 
         robot.set_joint_position_target(joint_target)
         robot.write_data_to_sim()
@@ -139,6 +144,8 @@ def main() -> None:
         elif phase == Phase.CLOSE and phase_step > 45:
             phase = Phase.ATTACH
             phase_step = -1
+            grasp_anchor_pos = gripper_center_w(robot, handles).clone()
+            smoothed_goal = phase_goal(phase, grasp_anchor_pos, sim.device)
             print("[INFO] ATTACH", flush=True)
         elif phase == Phase.ATTACH and phase_step > 20:
             phase = Phase.LIFT
@@ -166,6 +173,8 @@ def main() -> None:
             attached = False
             success_printed = False
             write_cube_pose(cube, cube_initial_pos)
+            grasp_anchor_pos = cube_initial_pos.clone()
+            smoothed_goal = phase_goal(Phase.APPROACH, grasp_anchor_pos, sim.device)
             phase = Phase.APPROACH
             phase_step = -1
             print("[INFO] APPROACH", flush=True)
