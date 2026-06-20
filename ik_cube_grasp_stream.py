@@ -47,16 +47,20 @@ class Phase(Enum):
     RESET = "RESET"
 
 
+CUBE_GRASP_Z_OFFSET = 0.015
+CUBE_ATTACH_Z_OFFSET = -0.015
+
+
 def phase_goal(phase: Phase, anchor_pos: torch.Tensor, device: str) -> torch.Tensor:
     goal = anchor_pos.clone()
     if phase == Phase.APPROACH:
-        goal[:, 2] += 0.20
+        goal[:, 2] += 0.18
     elif phase == Phase.DESCEND:
-        goal[:, 2] += 0.075
+        goal[:, 2] += 0.050
     elif phase in (Phase.CLOSE, Phase.ATTACH):
-        goal[:, 2] += 0.060
+        goal[:, 2] += CUBE_GRASP_Z_OFFSET
     elif phase in (Phase.LIFT, Phase.HOLD):
-        goal[:, 2] += 0.24
+        goal[:, 2] += 0.22
     elif phase == Phase.RESET:
         goal = torch.tensor([[0.23, -0.25, 0.28]], device=device)
     return goal
@@ -108,7 +112,7 @@ def main() -> None:
         if phase in (Phase.ATTACH, Phase.LIFT, Phase.HOLD):
             attached = True
         if attached:
-            cube_follow_pos = center + torch.tensor([[0.0, 0.0, -0.052]], device=sim.device)
+            cube_follow_pos = center + torch.tensor([[0.0, 0.0, CUBE_ATTACH_Z_OFFSET]], device=sim.device)
             write_cube_pose(cube, cube_follow_pos)
 
         robot.set_joint_position_target(joint_target)
@@ -118,7 +122,7 @@ def main() -> None:
         cube.update(sim.get_physics_dt())
         if attached:
             center = gripper_center_w(robot, handles)
-            cube_follow_pos = center + torch.tensor([[0.0, 0.0, -0.052]], device=sim.device)
+            cube_follow_pos = center + torch.tensor([[0.0, 0.0, CUBE_ATTACH_Z_OFFSET]], device=sim.device)
             write_cube_pose(cube, cube_follow_pos)
 
         target_marker.visualize(goal)
