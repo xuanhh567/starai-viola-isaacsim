@@ -42,7 +42,7 @@ class ViolaCubeLiftEnvCfg(LiftEnvCfg):
             asset_name="robot",
             joint_names=ARM_JOINTS,
             body_name=EE_BODY,
-            controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"),
+            controller=DifferentialIKControllerCfg(command_type="position", use_relative_mode=False, ik_method="dls"),
             body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=TCP_OFFSET_POS),
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
@@ -98,6 +98,28 @@ class ViolaCubeLiftEnvCfg(LiftEnvCfg):
 @configclass
 class ViolaCubeLiftEnvCfg_PLAY(ViolaCubeLiftEnvCfg):
     """Small single-env Lift-Cube variant for WebRTC demos."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 1
+        self.scene.env_spacing = 2.5
+        self.observations.policy.enable_corruption = False
+
+
+@configclass
+class ViolaCubePoseLiftEnvCfg(ViolaCubeLiftEnvCfg):
+    """Lift-Cube environment variant that also commands TCP orientation."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.actions.arm_action.controller = DifferentialIKControllerCfg(
+            command_type="pose", use_relative_mode=False, ik_method="dls"
+        )
+
+
+@configclass
+class ViolaCubePoseLiftEnvCfg_PLAY(ViolaCubePoseLiftEnvCfg):
+    """Small single-env pose IK Lift-Cube variant for grasp-pose experiments."""
 
     def __post_init__(self):
         super().__post_init__()

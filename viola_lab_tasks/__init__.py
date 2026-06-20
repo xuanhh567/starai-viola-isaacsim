@@ -40,3 +40,21 @@ gym.register(
     },
     disable_env_checker=True,
 )
+
+gym.register(
+    id="Isaac-Lift-Cube-Viola-IK-Pose-Abs-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": "viola_lab_tasks.lift_env_cfg:ViolaCubePoseLiftEnvCfg",
+    },
+    disable_env_checker=True,
+)
+
+gym.register(
+    id="Isaac-Lift-Cube-Viola-IK-Pose-Abs-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": "viola_lab_tasks.lift_env_cfg:ViolaCubePoseLiftEnvCfg_PLAY",
+    },
+    disable_env_checker=True,
+)

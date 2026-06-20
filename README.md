@@ -62,6 +62,12 @@ Isaac Lab official Lift-Cube task variant:
 ssh g5090 'cd /home/ubuntu/wjx/starai_isaac_viola && nohup ./start_viola_lab_lift.sh > viola_lab_lift.log 2>&1 & echo $!'
 ```
 
+Pose-IK Lift-Cube experiment for gripper orientation debugging:
+
+```bash
+ssh g5090 'cd /home/ubuntu/wjx/starai_isaac_viola && nohup ./start_viola_lab_lift_pose.sh --max-steps 420 --screenshot-dir outputs/screenshots/lift_pose --screenshot-every 120 > viola_lab_lift_pose.log 2>&1 & echo $!'
+```
+
 Run Lift-Cube with Isaac Sim viewport screenshots for visual verification:
 
 ```bash
