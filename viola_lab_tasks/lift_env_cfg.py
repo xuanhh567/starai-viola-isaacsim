@@ -17,7 +17,16 @@ from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import LiftEnvC
 
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
 
-from .robot_cfg import ARM_JOINTS, BASE_BODY, EE_BODY, GRIPPER_CLOSED, GRIPPER_JOINTS, GRIPPER_OPEN, VIOLA_HIGH_PD_CFG
+from .robot_cfg import (
+    ARM_JOINTS,
+    BASE_BODY,
+    EE_BODY,
+    GRIPPER_CLOSED,
+    GRIPPER_JOINTS,
+    GRIPPER_OPEN,
+    TCP_OFFSET_POS,
+    VIOLA_HIGH_PD_CFG,
+)
 
 
 @configclass
@@ -34,6 +43,7 @@ class ViolaCubeLiftEnvCfg(LiftEnvCfg):
             joint_names=ARM_JOINTS,
             body_name=EE_BODY,
             controller=DifferentialIKControllerCfg(command_type="position", use_relative_mode=False, ik_method="dls"),
+            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=TCP_OFFSET_POS),
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
@@ -43,6 +53,7 @@ class ViolaCubeLiftEnvCfg(LiftEnvCfg):
         )
 
         self.commands.object_pose.body_name = EE_BODY
+        self.commands.object_pose.debug_vis = False
         self.commands.object_pose.ranges.pos_x = (0.25, 0.40)
         self.commands.object_pose.ranges.pos_y = (-0.16, 0.16)
         self.commands.object_pose.ranges.pos_z = (0.18, 0.34)
@@ -78,7 +89,7 @@ class ViolaCubeLiftEnvCfg(LiftEnvCfg):
                 FrameTransformerCfg.FrameCfg(
                     prim_path=f"{{ENV_REGEX_NS}}/Robot/{EE_BODY}",
                     name="end_effector",
-                    offset=OffsetCfg(),
+                    offset=OffsetCfg(pos=TCP_OFFSET_POS),
                 ),
             ],
         )

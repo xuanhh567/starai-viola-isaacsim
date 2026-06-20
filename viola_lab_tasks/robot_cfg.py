@@ -17,6 +17,7 @@ ARM_JOINTS = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
 GRIPPER_JOINTS = ["joint7_left", "joint7_right"]
 BASE_BODY = "base_link"
 EE_BODY = "link6"
+TCP_OFFSET_POS = (-0.000025, 0.010118, -0.01665)
 
 GRIPPER_OPEN = {"joint7_left": -0.025, "joint7_right": 0.025}
 GRIPPER_CLOSED = {"joint7_left": -0.002, "joint7_right": 0.002}
